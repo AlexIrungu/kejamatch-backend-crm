@@ -1,5 +1,12 @@
+/**
+ * Booking Controller
+ * Handles booking submissions with CRM integration
+ */
+
 import resend from '../config/resend.js';
 import { bookingAdminTemplate, bookingUserTemplate } from '../templates/emailTemplates.js';
+import OdooLeads from '../services/odooLeads.js';
+import logger from '../utils/logger.js';
 
 export const handleBooking = async (req, res, next) => {
   try {
@@ -17,6 +24,8 @@ export const handleBooking = async (req, res, next) => {
       totalCost,
       specialRequests
     } = req.body;
+
+    logger.info(`📅 Processing booking from: ${name} for ${propertyName}`);
 
     // Format dates for email
     const formatDate = (dateString) => {
@@ -59,14 +68,35 @@ export const handleBooking = async (req, res, next) => {
       html: bookingUserTemplate(emailData)
     });
 
-    // Log email IDs for debugging
-    console.log('Booking emails sent:', {
+    logger.success('✅ Booking emails sent successfully', {
       admin: adminEmail.data?.id,
       user: userEmail.data?.id,
-      property: propertyName,
-      guest: name
     });
 
+    // Create opportunity in Odoo CRM (non-blocking)
+    let crmResult = null;
+    try {
+      crmResult = await OdooLeads.fromBookingForm({
+        ...req.body,
+        checkIn, // Keep ISO format for CRM
+        checkOut,
+      });
+
+      if (crmResult.success) {
+        logger.success(`✅ Booking created in CRM (Opportunity ID: ${crmResult.opportunityId})`);
+      } else {
+        logger.warn('⚠️ CRM sync failed but email was sent:', crmResult.error);
+      }
+    } catch (crmError) {
+      // Don't fail the request if CRM fails
+      logger.error('⚠️ CRM error (non-critical):', crmError.message);
+      crmResult = {
+        success: false,
+        error: crmError.message,
+      };
+    }
+
+    // Return success response
     res.status(200).json({
       success: true,
       message: 'Booking request submitted successfully! We will contact you shortly.',
@@ -75,12 +105,13 @@ export const handleBooking = async (req, res, next) => {
         property: propertyName,
         checkIn: formatDate(checkIn),
         checkOut: formatDate(checkOut),
-        totalCost
+        totalCost,
+        crm: crmResult, // Include CRM status for debugging
       }
     });
 
   } catch (error) {
-    console.error('Booking error:', error);
+    logger.error('❌ Booking error:', error);
     next(error);
   }
 };
