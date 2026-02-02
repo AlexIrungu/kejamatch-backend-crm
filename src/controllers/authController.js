@@ -1,4 +1,4 @@
-import { userStorage } from '../services/userStorage.js';
+import { userStorage } from '../services/userStorageMongo.js';
 import { generateToken } from '../middleware/auth.js';
 import { Resend } from 'resend';
 import { verificationCodeTemplate, welcomeEmailTemplate } from '../templates/emailTemplates.js';

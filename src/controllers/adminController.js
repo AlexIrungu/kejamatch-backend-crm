@@ -1,5 +1,5 @@
-import { userStorage } from '../services/userStorage.js';
-import LeadStorage from '../services/leadStorage.js';
+import { userStorage } from '../services/userStorageMongo.js';
+import LeadStorage from '../services/leadStorageMongo.js';
 import logger from '../utils/logger.js';
 
 // Get dashboard statistics

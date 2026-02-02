@@ -10,6 +10,7 @@ import adminRoutes from './routes/adminRoutes.js';
 import agentRoutes from './routes/agentRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import logger from './utils/logger.js';
+import database from './src/config/database.js';  // Add this
 
 // Load environment variables
 dotenv.config();
