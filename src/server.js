@@ -12,6 +12,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import logger from './utils/logger.js';
 import database from './config/database.js';  // Fixed import path
 import propertyRoutes from './routes/propertyRoutes.js';
+import viewingRoutes from './routes/viewingRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -90,6 +91,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/properties', propertyRoutes);
+app.use('/api/viewings', viewingRoutes);
 
 // 404 handler
 app.use((req, res) => {

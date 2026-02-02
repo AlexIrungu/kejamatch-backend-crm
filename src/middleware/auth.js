@@ -100,6 +100,17 @@ export const requireAdmin = (req, res, next) => {
   next();
 };
 
+// Check if user is agent or admin
+export const requireAgentOrAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'agent') {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied. Agent or Admin privileges required.',
+    });
+  }
+  next();
+};
+
 // Check if user is admin or accessing their own data
 export const requireAdminOrSelf = (req, res, next) => {
   const userId = req.params.id || req.params.userId;
@@ -118,5 +129,6 @@ export default {
   generateToken,
   verifyToken,
   requireAdmin,
+  requireAgentOrAdmin,
   requireAdminOrSelf,
 };

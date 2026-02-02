@@ -572,3 +572,11 @@ export const welcomeEmailTemplate = (data) => `
 </body>
 </html>
 `;
+
+// Re-export viewing templates
+export { 
+  viewingRequestAdminTemplate, 
+  viewingRequestUserTemplate, 
+  viewingConfirmedTemplate,
+  viewingReminderTemplate 
+} from './viewingEmailTemplates.js';
