@@ -10,7 +10,7 @@ import adminRoutes from './routes/adminRoutes.js';
 import agentRoutes from './routes/agentRoutes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import logger from './utils/logger.js';
-import database from './src/config/database.js';  // Add this
+import database from './config/database.js';  // Fixed import path
 
 // Load environment variables
 dotenv.config();
@@ -47,14 +47,21 @@ app.use('/api/', limiter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
+// Health check endpoint - Now includes database status
 app.get('/health', (req, res) => {
+  const dbStatus = database.getConnectionStatus();
+  
   res.status(200).json({ 
     status: 'OK', 
     message: 'Kejamatch API is running',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    database: {
+      connected: dbStatus.isConnected,
+      name: dbStatus.name,
+      host: dbStatus.host
+    }
   });
 });
 
@@ -94,30 +101,48 @@ app.use((req, res) => {
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
-// Start server
-app.listen(PORT, () => {
-  logger.info(`🚀 Kejamatch Backend Server running on port ${PORT}`);
-  logger.info(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`🌐 CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-  logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
-  
-  // Check Odoo configuration
-  if (process.env.ODOO_URL) {
-    logger.info(`✅ Odoo CRM integration enabled: ${process.env.ODOO_URL}`);
-  } else {
-    logger.warn('⚠️  Odoo CRM integration not configured');
+// Start server with database connection
+const startServer = async () => {
+  try {
+    // Connect to MongoDB first
+    await database.connect();
+    
+    // Then start the Express server
+    app.listen(PORT, () => {
+      logger.info(`🚀 Kejamatch Backend Server running on port ${PORT}`);
+      logger.info(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`🌐 CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+      logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
+      
+      // Check Odoo configuration
+      if (process.env.ODOO_URL) {
+        logger.info(`✅ Odoo CRM integration enabled: ${process.env.ODOO_URL}`);
+      } else {
+        logger.warn('⚠️  Odoo CRM integration not configured');
+      }
+    });
+  } catch (error) {
+    logger.error('❌ Failed to start server:', error);
+    process.exit(1);
   }
-});
+};
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM signal received: closing HTTP server');
-  process.exit(0);
-});
+// Graceful shutdown with database disconnect
+const gracefulShutdown = async (signal) => {
+  logger.info(`${signal} signal received: closing HTTP server`);
+  try {
+    await database.disconnect();
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown:', error);
+    process.exit(1);
+  }
+};
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT signal received: closing HTTP server');
-  process.exit(0);
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Start the server
+startServer();
 
 export default app;

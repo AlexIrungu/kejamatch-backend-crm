@@ -1,11 +1,11 @@
 /**
  * Booking Controller
- * Handles booking submissions with CRM integration
+ * Handles booking submissions with lead storage + CRM integration
  */
 
 import resend from '../config/resend.js';
 import { bookingAdminTemplate, bookingUserTemplate } from '../templates/emailTemplates.js';
-import OdooLeads from '../services/odooLeads.js';
+import LeadStorage from '../services/leadStorageMongo.js'; // Use MongoDB version
 import logger from '../utils/logger.js';
 
 export const handleBooking = async (req, res, next) => {
@@ -15,7 +15,7 @@ export const handleBooking = async (req, res, next) => {
       propertyLocation,
       name,
       email,
-      phone,
+      phoneNumber, // Changed from 'phone' to match contact form
       checkIn,
       checkOut,
       guests,
@@ -42,7 +42,7 @@ export const handleBooking = async (req, res, next) => {
       propertyLocation,
       name,
       email,
-      phone,
+      phone: phoneNumber, // For email template
       checkIn: formatDate(checkIn),
       checkOut: formatDate(checkOut),
       guests,
@@ -52,15 +52,39 @@ export const handleBooking = async (req, res, next) => {
       specialRequests: specialRequests || 'None'
     };
 
-    // Send admin notification email
+    // STEP 1: Save lead to database (like contact form does)
+    const leadResult = await LeadStorage.saveLead({
+      name,
+      email,
+      phoneNumber,
+      subject: `BNB Booking: ${propertyName}`,
+      message: `Booking Request:
+Property: ${propertyName} (${propertyLocation})
+Check-in: ${formatDate(checkIn)}
+Check-out: ${formatDate(checkOut)}
+Guests: ${guests}
+Nights: ${nights}
+Total Cost: KES ${totalCost.toLocaleString()}
+Special Requests: ${specialRequests || 'None'}`,
+      source: 'bnb_booking_form'
+    });
+
+    if (leadResult.success) {
+      logger.info(`✅ Booking lead saved (ID: ${leadResult.lead._id})`);
+    } else {
+      logger.warn('⚠️ Failed to save booking lead:', leadResult.error);
+    }
+
+    // STEP 2: Send admin notification email
     const adminEmail = await resend.emails.send({
       from: process.env.FROM_EMAIL,
       to: process.env.ADMIN_EMAIL,
-      subject: `New Booking Request - ${propertyName}`,
-      html: bookingAdminTemplate(emailData)
+      subject: `🏠 New Booking Request - ${propertyName}`,
+      html: bookingAdminTemplate(emailData),
+      replyTo: email
     });
 
-    // Send user confirmation email
+    // STEP 3: Send user confirmation email
     const userEmail = await resend.emails.send({
       from: process.env.FROM_EMAIL,
       to: email,
@@ -68,45 +92,23 @@ export const handleBooking = async (req, res, next) => {
       html: bookingUserTemplate(emailData)
     });
 
-    logger.success('✅ Booking emails sent successfully', {
+    logger.info('✅ Booking emails sent successfully', {
       admin: adminEmail.data?.id,
       user: userEmail.data?.id,
+      leadId: leadResult.lead?._id
     });
-
-    // Create opportunity in Odoo CRM (non-blocking)
-    let crmResult = null;
-    try {
-      crmResult = await OdooLeads.fromBookingForm({
-        ...req.body,
-        checkIn, // Keep ISO format for CRM
-        checkOut,
-      });
-
-      if (crmResult.success) {
-        logger.success(`✅ Booking created in CRM (Opportunity ID: ${crmResult.opportunityId})`);
-      } else {
-        logger.warn('⚠️ CRM sync failed but email was sent:', crmResult.error);
-      }
-    } catch (crmError) {
-      // Don't fail the request if CRM fails
-      logger.error('⚠️ CRM error (non-critical):', crmError.message);
-      crmResult = {
-        success: false,
-        error: crmError.message,
-      };
-    }
 
     // Return success response
     res.status(200).json({
       success: true,
       message: 'Booking request submitted successfully! We will contact you shortly.',
       data: {
+        leadId: leadResult.lead?._id,
         bookingId: adminEmail.data?.id,
         property: propertyName,
         checkIn: formatDate(checkIn),
         checkOut: formatDate(checkOut),
-        totalCost,
-        crm: crmResult, // Include CRM status for debugging
+        totalCost
       }
     });
 

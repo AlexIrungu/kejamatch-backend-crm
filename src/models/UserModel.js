@@ -106,27 +106,27 @@ const userSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+// Virtual for id (maps _id to id for consistency)
+userSchema.virtual('id').get(function() {
+  return this._id.toString();
+});
+
 // Indexes for better query performance
 userSchema.index({ email: 1, isActive: 1 });
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ isVerified: 1, createdAt: -1 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+// Hash password before saving
+userSchema.pre('save', async function() {
   // Only hash if password is modified or new
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
 
-  try {
-    this.password = await bcrypt.hash(this.password, SALT_ROUNDS);
-    this.lastPasswordChange = new Date();
-    next();
-  } catch (error) {
-    next(error);
-  }
+  this.password = await bcrypt.hash(this.password, SALT_ROUNDS);
+  this.lastPasswordChange = new Date();
 });
-
 // Method to compare passwords
 userSchema.methods.comparePassword = async function(candidatePassword) {
   try {

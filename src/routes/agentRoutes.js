@@ -1,5 +1,10 @@
+/**
+ * QUICK FIX - Add this helper function at the top of agentRoutes.js
+ * Then use it in all your filter comparisons
+ */
+
 import express from 'express';
-import LeadStorage from '../services/leadStorage.js';
+import LeadStorage from '../services/leadStorageMongo.js';
 import { verifyToken } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
 
@@ -7,12 +12,23 @@ const router = express.Router();
 
 router.use(verifyToken);
 
+// Helper function to extract ID from assignedTo (handles both populated and non-populated)
+const getAssignedToId = (assignedTo) => {
+  if (!assignedTo) return null;
+  // If populated (has _id), use _id, otherwise use the value itself
+  return assignedTo._id ? assignedTo._id.toString() : assignedTo.toString();
+};
+
 // Get agent's dashboard stats
 router.get('/stats', async (req, res) => {
   try {
     const leadsResponse = await LeadStorage.getAllLeads();
     const leads = leadsResponse?.leads || [];
-    const agentLeads = leads.filter(l => l.assignedTo === req.user.id);
+    
+    // Use helper function
+    const agentLeads = leads.filter(l => 
+      getAssignedToId(l.assignedTo) === req.user.id.toString()
+    );
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -48,13 +64,29 @@ router.get('/leads', async (req, res) => {
   try {
     const { status } = req.query;
     const leadsResponse = await LeadStorage.getAllLeads();
-    let leads = (leadsResponse?.leads || []).filter(l => l.assignedTo === req.user.id);
+    
+    // Use helper function
+    let leads = (leadsResponse?.leads || []).filter(l => 
+      getAssignedToId(l.assignedTo) === req.user.id.toString()
+    );
 
     if (status) {
       leads = leads.filter(l => l.status === status);
     }
 
+    // Convert MongoDB documents to plain objects and add id field
+    leads = leads.map(lead => {
+      const plainLead = lead.toObject ? lead.toObject() : lead;
+      return {
+        ...plainLead,
+        id: plainLead._id.toString()
+      };
+    });
+
     leads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    logger.info(`✅ Agent ${req.user.email} fetched ${leads.length} leads`);
+    
     res.status(200).json({ success: true, count: leads.length, data: leads });
   } catch (error) {
     logger.error('❌ Get agent leads error:', error);
@@ -71,11 +103,21 @@ router.get('/leads/:id', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You do not have access to this lead' });
     }
 
-    res.status(200).json({ success: true, data: lead });
+    const plainLead = lead.toObject();
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        ...plainLead,
+        id: plainLead._id.toString()
+      }
+    });
   } catch (error) {
     logger.error('❌ Get lead error:', error);
     res.status(500).json({ success: false, message: 'Failed to get lead' });
@@ -91,7 +133,10 @@ router.get('/leads/:id/activities', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You do not have access to this lead' });
     }
 
@@ -112,7 +157,10 @@ router.put('/leads/:id/status', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only update leads assigned to you' });
     }
 
@@ -145,7 +193,10 @@ router.post('/leads/:id/notes', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only add notes to leads assigned to you' });
     }
 
@@ -177,7 +228,10 @@ router.post('/leads/:id/calls', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only log calls for leads assigned to you' });
     }
 
@@ -209,7 +263,10 @@ router.post('/leads/:id/emails', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only log emails for leads assigned to you' });
     }
 
@@ -237,7 +294,10 @@ router.post('/leads/:id/viewings', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only schedule viewings for leads assigned to you' });
     }
 
@@ -274,7 +334,10 @@ router.put('/leads/:id/viewings/:viewingId/complete', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only complete viewings for leads assigned to you' });
     }
 
@@ -306,7 +369,10 @@ router.post('/leads/:id/property-interest', async (req, res) => {
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Lead not found' });
     }
-    if (lead.assignedTo !== req.user.id) {
+    
+    // Use helper function
+    const assignedToId = getAssignedToId(lead.assignedTo);
+    if (!assignedToId || assignedToId !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: 'You can only add property interest for leads assigned to you' });
     }
 

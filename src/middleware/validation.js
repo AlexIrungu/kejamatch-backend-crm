@@ -49,32 +49,42 @@ export const contactValidation = [
 
 /**
  * Booking form validation rules
+ * Updated to match contact form pattern with phoneNumber
  */
 export const bookingValidation = [
   body('name')
     .trim()
     .notEmpty()
-    .withMessage('Name is required'),
+    .withMessage('Name is required')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters'),
   
   body('email')
     .trim()
     .notEmpty()
     .withMessage('Email is required')
     .isEmail()
-    .withMessage('Please provide a valid email address'),
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail(),
   
-  body('phone')
+  body('phoneNumber')  // Changed from 'phone' to 'phoneNumber'
     .trim()
     .notEmpty()
-    .withMessage('Phone number is required'),
+    .withMessage('Phone number is required')
+    .isLength({ min: 10, max: 20 })
+    .withMessage('Please provide a valid phone number'),
   
   body('checkIn')
     .notEmpty()
-    .withMessage('Check-in date is required'),
+    .withMessage('Check-in date is required')
+    .isISO8601()
+    .withMessage('Check-in must be a valid date'),
   
   body('checkOut')
     .notEmpty()
-    .withMessage('Check-out date is required'),
+    .withMessage('Check-out date is required')
+    .isISO8601()
+    .withMessage('Check-out must be a valid date'),
   
   body('guests')
     .notEmpty()
@@ -82,9 +92,35 @@ export const bookingValidation = [
     .isInt({ min: 1, max: 20 })
     .withMessage('Guests must be between 1 and 20'),
   
-  body('propertyId')
+  body('propertyName')  // Changed from 'propertyId' to 'propertyName' to match what BookingForm sends
+    .trim()
     .notEmpty()
-    .withMessage('Property ID is required'),
+    .withMessage('Property name is required'),
+  
+  body('propertyLocation')
+    .optional()
+    .trim(),
+  
+  body('nights')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Nights must be at least 1'),
+  
+  body('pricePerNight')
+    .optional()
+    .isNumeric()
+    .withMessage('Price per night must be a number'),
+  
+  body('totalCost')
+    .optional()
+    .isNumeric()
+    .withMessage('Total cost must be a number'),
+  
+  body('specialRequests')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Special requests must not exceed 1000 characters'),
 ];
 
 /**
@@ -99,7 +135,7 @@ export const validate = (req, res, next) => {
       message: err.msg
     }));
     
-    console.log('Validation errors:', errorMessages);
+    console.log('❌ Validation errors:', errorMessages);
     
     return res.status(400).json({
       success: false,

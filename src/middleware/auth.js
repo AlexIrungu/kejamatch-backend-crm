@@ -1,14 +1,17 @@
 import jwt from 'jsonwebtoken';
-import { userStorage } from '../services/userStorage.js';
+import { userStorage } from '../services/userStorageMongo.js'; // Use MongoDB version
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // Generate JWT token
 export const generateToken = (user) => {
+  // Use _id if id is not available (MongoDB compatibility)
+  const userId = user.id || user._id?.toString();
+  
   return jwt.sign(
     {
-      id: user.id,
+      id: userId,
       email: user.email,
       role: user.role,
     },
@@ -52,9 +55,11 @@ export const verifyToken = async (req, res, next) => {
       });
     }
 
-    // Attach user to request
+    // Attach user to request - use virtual id or _id
+    const userId = user.id || user._id?.toString();
+    
     req.user = {
-      id: user.id,
+      id: userId,
       email: user.email,
       role: user.role,
       name: user.name,
