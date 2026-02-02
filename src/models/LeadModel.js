@@ -102,7 +102,8 @@ const interestedPropertySchema = new mongoose.Schema({
   addedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false,  // ✅ Changed from true to false - allows system-generated interests
+    default: null     // ✅ Added default null
   },
   addedAt: {
     type: Date,
@@ -368,7 +369,7 @@ leadSchema.methods.addPropertyInterest = async function(propertyData, userId, us
       propertyId,
       propertyName,
       notes,
-      addedBy: userId
+      addedBy: userId  // ✅ Can now be null for system-generated interests
     });
   }
   

@@ -21,6 +21,21 @@ import {
   getUnverifiedUsers,
 } from '../controllers/adminController.js';
 import { verifyToken, requireAdmin } from '../middleware/auth.js';
+import {
+  getPendingClientApprovals,
+  approveClient,
+  rejectClient,
+  getAllClients,
+  getClient,
+  assignClientToAgent,
+  updateClient,
+  deleteClient,
+  getPendingDocuments,
+  verifyDocument,
+  rejectDocument,
+  downloadClientDocument,
+  getClientStats
+} from '../controllers/adminClientController.js';
 
 const router = express.Router();
 
@@ -56,5 +71,22 @@ router.get('/users/unverified', getUnverifiedUsers);
 router.put('/users/:id', updateUser);
 router.put('/users/:id/verify', verifyUser);
 router.delete('/users/:id', deleteUser);
+
+// Client Management
+router.get('/clients/pending', verifyToken, requireAdmin, getPendingClientApprovals);
+router.get('/clients/stats', verifyToken, requireAdmin, getClientStats);
+router.get('/clients', verifyToken, requireAdmin, getAllClients);
+router.get('/clients/:id', verifyToken, requireAdmin, getClient);
+router.post('/clients/:id/approve', verifyToken, requireAdmin, approveClient);
+router.post('/clients/:id/reject', verifyToken, requireAdmin, rejectClient);
+router.put('/clients/:id', verifyToken, requireAdmin, updateClient);
+router.delete('/clients/:id', verifyToken, requireAdmin, deleteClient);
+router.post('/clients/:id/assign-agent', verifyToken, requireAdmin, assignClientToAgent);
+
+// Document Management
+router.get('/documents/pending', verifyToken, requireAdmin, getPendingDocuments);
+router.post('/documents/:id/verify', verifyToken, requireAdmin, verifyDocument);
+router.post('/documents/:id/reject', verifyToken, requireAdmin, rejectDocument);
+router.get('/documents/:id/download', verifyToken, requireAdmin, downloadClientDocument);
 
 export default router;

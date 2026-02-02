@@ -14,6 +14,7 @@ import database from './config/database.js';  // Fixed import path
 import propertyRoutes from './routes/propertyRoutes.js';
 import viewingRoutes from './routes/viewingRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import clientRoutes from './routes/clientRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -94,6 +95,7 @@ app.use('/api/agent', agentRoutes);
 app.use('/api/properties', propertyRoutes);
 app.use('/api/viewings', viewingRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/client', clientRoutes);
 
 // 404 handler
 app.use((req, res) => {

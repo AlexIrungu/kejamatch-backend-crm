@@ -6,14 +6,13 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // Generate JWT token
 export const generateToken = (user) => {
-  // Use _id if id is not available (MongoDB compatibility)
   const userId = user.id || user._id?.toString();
   
   return jwt.sign(
     {
       id: userId,
       email: user.email,
-      role: user.role,
+      role: user.role, // Can now be 'admin', 'agent', or 'client'
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
