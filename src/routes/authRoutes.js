@@ -2,6 +2,8 @@ import express from 'express';
 import {
   register,
   login,
+  verifyEmail,
+  resendVerificationCode,
   getCurrentUser,
   updateProfile,
   changePassword,
@@ -31,9 +33,23 @@ const loginValidation = [
   body('password').notEmpty().withMessage('Password is required'),
 ];
 
+const verifyEmailValidation = [
+  body('email').isEmail().normalizeEmail().withMessage('Invalid email address'),
+  body('code')
+    .isLength({ min: 6, max: 6 })
+    .isNumeric()
+    .withMessage('Verification code must be 6 digits'),
+];
+
+const resendCodeValidation = [
+  body('email').isEmail().normalizeEmail().withMessage('Invalid email address'),
+];
+
 // Public routes
 router.post('/register', registerValidation, validate, register);
 router.post('/login', loginValidation, validate, login);
+router.post('/verify-email', verifyEmailValidation, validate, verifyEmail);
+router.post('/resend-verification', resendCodeValidation, validate, resendVerificationCode);
 
 // Protected routes (require authentication)
 router.get('/me', verifyToken, getCurrentUser);

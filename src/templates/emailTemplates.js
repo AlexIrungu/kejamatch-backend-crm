@@ -107,6 +107,25 @@ const baseStyles = `
     background: linear-gradient(90deg, transparent, ${colors.accent}, transparent);
     margin: 30px 0;
   }
+  .code-box {
+    background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.dark} 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 12px;
+    margin: 30px 0;
+    text-align: center;
+  }
+  .code-box .code {
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: 8px;
+    margin: 15px 0;
+    font-family: 'Courier New', monospace;
+  }
+  .code-box .expiry {
+    font-size: 14px;
+    opacity: 0.8;
+  }
 `;
 
 // 1. BOOKING - Admin Notification
@@ -418,6 +437,127 @@ export const contactUserTemplate = (data) => `
         <a href="https://kejamatch.com" class="button" style="background-color: ${colors.primary}; margin-right: 10px;">🏠 Visit Website</a>
         <a href="tel:+254721860371" class="button">📞 Call Us</a>
       </div>
+    </div>
+    
+    <div class="footer">
+      <p><strong>Kejamatch Properties</strong></p>
+      <p>Your trusted partner in real estate</p>
+      <p>📞 <a href="tel:+254721860371">+254 721 860 371</a> | 📧 <a href="mailto:info@kejamatch.com">info@kejamatch.com</a></p>
+      <p style="margin-top: 20px; font-size: 12px; opacity: 0.8;">
+        Nairobi CBD, Kenya | <a href="https://kejamatch.com">kejamatch.com</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+// 5. EMAIL VERIFICATION - Verification Code
+export const verificationCodeTemplate = (data) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Your Email</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔐 Verify Your Email</h1>
+      <p>Kejamatch Properties</p>
+    </div>
+    
+    <div class="content">
+      <p class="greeting">Hello ${data.name},</p>
+      
+      <p>Welcome to Kejamatch! To complete your registration, please enter the verification code below:</p>
+      
+      <div class="code-box">
+        <p style="margin: 0; font-size: 14px; opacity: 0.8;">Your Verification Code</p>
+        <div class="code">${data.code}</div>
+        <p class="expiry">⏰ This code expires in 10 minutes</p>
+      </div>
+
+      <div style="background-color: #fff3cd; border-left: 4px solid ${colors.accent}; padding: 15px; border-radius: 4px; margin: 20px 0;">
+        <p style="margin: 0; color: #856404;"><strong>🔒 Security Tip</strong></p>
+        <p style="margin: 10px 0 0 0; color: #856404; font-size: 14px;">
+          If you didn't create an account with Kejamatch, please ignore this email.
+        </p>
+      </div>
+
+      <p>Once verified, you'll have full access to your ${data.role === 'agent' ? 'Agent' : 'Admin'} Dashboard.</p>
+    </div>
+    
+    <div class="footer">
+      <p><strong>Kejamatch Properties</strong></p>
+      <p>Your trusted partner in real estate</p>
+      <p>📞 <a href="tel:+254721860371">+254 721 860 371</a> | 📧 <a href="mailto:info@kejamatch.com">info@kejamatch.com</a></p>
+      <p style="margin-top: 20px; font-size: 12px; opacity: 0.8;">
+        Nairobi CBD, Kenya | <a href="https://kejamatch.com">kejamatch.com</a>
+      </p>
+    </div>
+  </div>
+</body>
+</html>
+`;
+
+// 6. WELCOME EMAIL - After Verification
+export const welcomeEmailTemplate = (data) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Kejamatch!</title>
+  <style>${baseStyles}</style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🎉 Welcome to Kejamatch!</h1>
+      <p>Your account is now verified</p>
+    </div>
+    
+    <div class="content">
+      <p class="greeting">Hello ${data.name},</p>
+      
+      <p>Congratulations! Your email has been verified and your Kejamatch account is now fully activated.</p>
+      
+      <div class="divider"></div>
+
+      <div class="info-box">
+        <h3 style="color: ${colors.primary}; margin-top: 0;">Your Account Details</h3>
+        <div class="info-row">
+          <span class="info-label">Email:</span>
+          <span class="info-value">${data.email}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Role:</span>
+          <span class="info-value">${data.role === 'agent' ? 'Real Estate Agent' : 'Administrator'}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Joined:</span>
+          <span class="info-value">${new Date().toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          })}</span>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="https://kejamatch.com/login" class="button">🚀 Go to Dashboard</a>
+      </div>
+
+      <h3 style="color: ${colors.primary};">Getting Started</h3>
+      <ul style="color: #666; line-height: 2;">
+        <li>Complete your profile with a professional photo</li>
+        <li>Review your assigned leads in the dashboard</li>
+        <li>Follow up with new leads within 24 hours</li>
+        <li>Keep detailed notes on client interactions</li>
+      </ul>
     </div>
     
     <div class="footer">

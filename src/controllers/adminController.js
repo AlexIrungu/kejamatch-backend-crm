@@ -1,251 +1,298 @@
-import { leadStorage } from '../services/leadStorage.js';
 import { userStorage } from '../services/userStorage.js';
-import { odooService } from '../services/odooService.js';
+import LeadStorage from '../services/leadStorage.js';
 import logger from '../utils/logger.js';
 
 // Get dashboard statistics
 export const getDashboardStats = async (req, res) => {
   try {
-    const leads = await leadStorage.getAllLeads();
-    const users = await userStorage.getAllUsers();
+    const [users, leadsResponse] = await Promise.all([
+      userStorage.getAllUsers(),
+      LeadStorage.getAllLeads(),
+    ]);
 
-    // Calculate statistics
+    const leads = leadsResponse?.leads || [];
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const thisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     const stats = {
-      leads: {
-        total: leads.length,
-        today: leads.filter(l => new Date(l.createdAt) >= today).length,
-        thisWeek: leads.filter(l => new Date(l.createdAt) >= thisWeek).length,
-        thisMonth: leads.filter(l => new Date(l.createdAt) >= thisMonth).length,
-        byStatus: {},
-        byType: {
-          contact: leads.filter(l => l.type === 'contact').length,
-          booking: leads.filter(l => l.type === 'booking').length,
-        },
-      },
       users: {
         total: users.length,
         admins: users.filter(u => u.role === 'admin').length,
         agents: users.filter(u => u.role === 'agent').length,
-        active: users.filter(u => u.isActive).length,
+        verified: users.filter(u => u.isVerified).length,
+        unverified: users.filter(u => !u.isVerified).length,
+      },
+      leads: {
+        total: leads.length,
+        today: leads.filter(l => new Date(l.createdAt) >= today).length,
+        thisWeek: leads.filter(l => new Date(l.createdAt) >= weekAgo).length,
+        byStatus: {
+          new: leads.filter(l => l.status === 'new').length,
+          contacted: leads.filter(l => l.status === 'contacted').length,
+          qualified: leads.filter(l => l.status === 'qualified').length,
+          viewing: leads.filter(l => l.status === 'viewing').length,
+          negotiating: leads.filter(l => l.status === 'negotiating').length,
+          won: leads.filter(l => l.status === 'won').length,
+          lost: leads.filter(l => l.status === 'lost').length,
+        },
       },
       recentActivity: leads
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-        .slice(0, 10)
-        .map(lead => ({
-          id: lead.id,
-          type: lead.type,
-          name: lead.name,
-          email: lead.email,
-          status: lead.status,
-          createdAt: lead.createdAt,
-        })),
+        .slice(0, 5),
     };
 
-    // Count leads by status
-    leads.forEach(lead => {
-      stats.leads.byStatus[lead.status] = (stats.leads.byStatus[lead.status] || 0) + 1;
-    });
-
-    res.status(200).json({
-      success: true,
-      data: stats,
-    });
+    res.status(200).json({ success: true, data: stats });
   } catch (error) {
     logger.error('❌ Get dashboard stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get dashboard statistics',
-    });
+    res.status(500).json({ success: false, message: 'Failed to get dashboard statistics' });
   }
 };
 
-// Get all leads (with filters)
+// Get all leads
 export const getAllLeads = async (req, res) => {
   try {
-    const { status, type, startDate, endDate, search } = req.query;
-    
-    let leads = await leadStorage.getAllLeads();
-
-    // Apply filters
-    if (status) {
-      leads = leads.filter(l => l.status === status);
-    }
-
-    if (type) {
-      leads = leads.filter(l => l.type === type);
-    }
-
-    if (startDate) {
-      leads = leads.filter(l => new Date(l.createdAt) >= new Date(startDate));
-    }
-
-    if (endDate) {
-      leads = leads.filter(l => new Date(l.createdAt) <= new Date(endDate));
-    }
-
-    if (search) {
-      const searchLower = search.toLowerCase();
-      leads = leads.filter(l => 
-        l.name.toLowerCase().includes(searchLower) ||
-        l.email.toLowerCase().includes(searchLower) ||
-        (l.phone && l.phone.includes(search))
-      );
-    }
-
-    // Sort by most recent first
-    leads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    res.status(200).json({
-      success: true,
-      count: leads.length,
-      data: leads,
-    });
+    const leadsResponse = await LeadStorage.getAllLeads();
+    res.status(200).json({ success: true, data: leadsResponse?.leads || [] });
   } catch (error) {
     logger.error('❌ Get all leads error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get leads',
-    });
+    res.status(500).json({ success: false, message: 'Failed to get leads' });
   }
 };
 
-// Get single lead
+// Get single lead with activities
 export const getLead = async (req, res) => {
   try {
     const { id } = req.params;
-    const lead = await leadStorage.getLeadById(id);
+    const lead = await LeadStorage.findById(id);
 
     if (!lead) {
-      return res.status(404).json({
-        success: false,
-        message: 'Lead not found',
-      });
+      return res.status(404).json({ success: false, message: 'Lead not found' });
     }
 
-    res.status(200).json({
-      success: true,
-      data: lead,
-    });
+    res.status(200).json({ success: true, data: lead });
   } catch (error) {
     logger.error('❌ Get lead error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get lead',
-    });
+    res.status(500).json({ success: false, message: 'Failed to get lead' });
   }
 };
 
-// Update lead status
+// Get lead activities
+export const getLeadActivities = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 50 } = req.query;
+    
+    const result = await LeadStorage.getLeadActivities(id, parseInt(limit));
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error });
+    }
+
+    res.status(200).json({ success: true, data: result.activities });
+  } catch (error) {
+    logger.error('❌ Get lead activities error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get activities' });
+  }
+};
+
+// Update lead status with activity tracking
 export const updateLeadStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status } = req.body;
 
-    const validStatuses = ['new', 'contacted', 'qualified', 'negotiation', 'won', 'lost'];
+    const validStatuses = ['new', 'contacted', 'qualified', 'viewing', 'negotiating', 'won', 'lost'];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`,
-      });
+      return res.status(400).json({ success: false, message: 'Invalid status' });
     }
 
-    const lead = await leadStorage.updateLead(id, {
-      status,
-      notes: notes || lead.notes,
-      updatedBy: req.user.email,
-      updatedAt: new Date().toISOString(),
-    });
-
-    // Sync to Odoo if configured
-    try {
-      if (process.env.ODOO_URL && lead.odooLeadId) {
-        await odooService.updateLeadStatus(lead.odooLeadId, status);
-        logger.info(`✅ Lead status synced to Odoo: ${id}`);
-      }
-    } catch (odooError) {
-      logger.error('⚠️ Failed to sync status to Odoo:', odooError);
-      // Don't fail the request if Odoo sync fails
+    const result = await LeadStorage.updateLeadStatus(id, status, req.user.id, req.user.name);
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
     }
 
     logger.info(`✅ Lead status updated: ${id} -> ${status} by ${req.user.email}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'Lead status updated successfully',
-      data: lead,
-    });
+    res.status(200).json({ success: true, message: 'Lead status updated successfully', data: result.lead });
   } catch (error) {
     logger.error('❌ Update lead status error:', error);
-
-    if (error.message === 'Lead not found') {
-      return res.status(404).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update lead status',
-    });
+    res.status(500).json({ success: false, message: 'Failed to update lead status' });
   }
 };
 
-// Assign lead to agent
+// Assign lead to agent with activity tracking
 export const assignLead = async (req, res) => {
   try {
     const { id } = req.params;
     const { agentId } = req.body;
 
-    // Verify agent exists and has agent role
     const agent = await userStorage.findById(agentId);
     if (!agent) {
-      return res.status(404).json({
-        success: false,
-        message: 'Agent not found',
-      });
+      return res.status(404).json({ success: false, message: 'Agent not found' });
     }
 
-    if (agent.role !== 'agent' && agent.role !== 'admin') {
-      return res.status(400).json({
-        success: false,
-        message: 'User is not an agent',
-      });
+    const result = await LeadStorage.assignLead(id, agentId, req.user.id, req.user.name, agent.name);
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
     }
 
-    const lead = await leadStorage.updateLead(id, {
-      assignedTo: agentId,
-      assignedToName: agent.name,
-      assignedAt: new Date().toISOString(),
-      updatedBy: req.user.email,
-    });
-
-    logger.info(`✅ Lead assigned: ${id} -> ${agent.name} by ${req.user.email}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'Lead assigned successfully',
-      data: lead,
-    });
+    logger.info(`✅ Lead assigned: ${id} -> Agent: ${agent.email} by ${req.user.email}`);
+    res.status(200).json({ success: true, message: `Lead assigned to ${agent.name}`, data: result.lead });
   } catch (error) {
     logger.error('❌ Assign lead error:', error);
+    res.status(500).json({ success: false, message: 'Failed to assign lead' });
+  }
+};
 
-    if (error.message === 'Lead not found') {
-      return res.status(404).json({
-        success: false,
-        message: error.message,
-      });
+// Add note to lead
+export const addLeadNote = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { note } = req.body;
+
+    if (!note || note.trim() === '') {
+      return res.status(400).json({ success: false, message: 'Note is required' });
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Failed to assign lead',
-    });
+    const result = await LeadStorage.addNote(id, note.trim(), req.user.id, req.user.name);
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
+    }
+
+    logger.info(`✅ Note added to lead: ${id} by ${req.user.email}`);
+    res.status(200).json({ success: true, message: 'Note added successfully', data: result.lead });
+  } catch (error) {
+    logger.error('❌ Add note error:', error);
+    res.status(500).json({ success: false, message: 'Failed to add note' });
+  }
+};
+
+// Log a call
+export const logLeadCall = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { outcome, duration, notes } = req.body;
+
+    if (!outcome) {
+      return res.status(400).json({ success: false, message: 'Call outcome is required' });
+    }
+
+    const result = await LeadStorage.logCall(id, { outcome, duration, notes }, req.user.id, req.user.name);
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
+    }
+
+    logger.info(`✅ Call logged for lead: ${id} by ${req.user.email}`);
+    res.status(200).json({ success: true, message: 'Call logged successfully', data: result.lead });
+  } catch (error) {
+    logger.error('❌ Log call error:', error);
+    res.status(500).json({ success: false, message: 'Failed to log call' });
+  }
+};
+
+// Log an email
+export const logLeadEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { subject, type, notes } = req.body;
+
+    const result = await LeadStorage.logEmail(id, { subject, type, notes }, req.user.id, req.user.name);
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
+    }
+
+    logger.info(`✅ Email logged for lead: ${id} by ${req.user.email}`);
+    res.status(200).json({ success: true, message: 'Email logged successfully', data: result.lead });
+  } catch (error) {
+    logger.error('❌ Log email error:', error);
+    res.status(500).json({ success: false, message: 'Failed to log email' });
+  }
+};
+
+// Schedule a viewing
+export const scheduleViewing = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { propertyId, propertyName, scheduledDate, scheduledTime, notes } = req.body;
+
+    if (!scheduledDate || !scheduledTime) {
+      return res.status(400).json({ success: false, message: 'Date and time are required' });
+    }
+
+    const result = await LeadStorage.scheduleViewing(
+      id, 
+      { propertyId, propertyName, scheduledDate, scheduledTime, notes }, 
+      req.user.id, 
+      req.user.name
+    );
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
+    }
+
+    logger.info(`✅ Viewing scheduled for lead: ${id} by ${req.user.email}`);
+    res.status(200).json({ success: true, message: 'Viewing scheduled successfully', data: result.lead, viewing: result.viewing });
+  } catch (error) {
+    logger.error('❌ Schedule viewing error:', error);
+    res.status(500).json({ success: false, message: 'Failed to schedule viewing' });
+  }
+};
+
+// Complete a viewing
+export const completeViewing = async (req, res) => {
+  try {
+    const { id, viewingId } = req.params;
+    const { outcome, notes } = req.body;
+
+    if (!outcome) {
+      return res.status(400).json({ success: false, message: 'Outcome is required' });
+    }
+
+    const result = await LeadStorage.completeViewing(id, viewingId, outcome, notes, req.user.id, req.user.name);
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error });
+    }
+
+    logger.info(`✅ Viewing completed for lead: ${id} by ${req.user.email}`);
+    res.status(200).json({ success: true, message: 'Viewing completed successfully', data: result.lead });
+  } catch (error) {
+    logger.error('❌ Complete viewing error:', error);
+    res.status(500).json({ success: false, message: 'Failed to complete viewing' });
+  }
+};
+
+// Add property interest
+export const addPropertyInterest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { propertyId, propertyName, notes } = req.body;
+
+    if (!propertyId && !propertyName) {
+      return res.status(400).json({ success: false, message: 'Property information is required' });
+    }
+
+    const result = await LeadStorage.addPropertyInterest(
+      id, 
+      { propertyId, propertyName, notes }, 
+      req.user.id, 
+      req.user.name
+    );
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
+    }
+
+    logger.info(`✅ Property interest added for lead: ${id} by ${req.user.email}`);
+    res.status(200).json({ success: true, message: 'Property interest added', data: result.lead });
+  } catch (error) {
+    logger.error('❌ Add property interest error:', error);
+    res.status(500).json({ success: false, message: 'Failed to add property interest' });
   }
 };
 
@@ -253,160 +300,49 @@ export const assignLead = async (req, res) => {
 export const deleteLead = async (req, res) => {
   try {
     const { id } = req.params;
-
-    await leadStorage.deleteLead(id);
-
-    logger.info(`✅ Lead deleted: ${id} by ${req.user.email}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'Lead deleted successfully',
-    });
-  } catch (error) {
-    logger.error('❌ Delete lead error:', error);
-
-    if (error.message === 'Lead not found') {
-      return res.status(404).json({
-        success: false,
-        message: error.message,
-      });
+    const result = await LeadStorage.deleteLead(id);
+    
+    if (!result.success) {
+      return res.status(404).json({ success: false, message: result.error || 'Lead not found' });
     }
 
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete lead',
-    });
+    logger.info(`✅ Lead deleted: ${id}`);
+    res.status(200).json({ success: true, message: 'Lead deleted successfully' });
+  } catch (error) {
+    logger.error('❌ Delete lead error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete lead' });
   }
 };
 
 // Export leads to CSV
 export const exportLeads = async (req, res) => {
   try {
-    const leads = await leadStorage.getAllLeads();
-
-    // Create CSV content
-    const headers = ['ID', 'Name', 'Email', 'Phone', 'Type', 'Status', 'Property', 'Created At', 'Assigned To'];
-    const rows = leads.map(lead => [
-      lead.id,
-      lead.name,
-      lead.email,
-      lead.phone || '',
-      lead.type,
-      lead.status,
-      lead.propertyName || '',
-      lead.createdAt,
-      lead.assignedToName || '',
-    ]);
-
-    const csv = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(',')),
-    ].join('\n');
+    const result = await LeadStorage.exportToCSV();
+    
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.error });
+    }
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=kejamatch-leads.csv');
-    res.status(200).send(csv);
-
-    logger.info(`✅ Leads exported by ${req.user.email}`);
+    res.setHeader('Content-Disposition', `attachment; filename=kejamatch-leads-${new Date().toISOString().split('T')[0]}.csv`);
+    res.send(result.csv);
   } catch (error) {
     logger.error('❌ Export leads error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to export leads',
-    });
+    res.status(500).json({ success: false, message: 'Failed to export leads' });
   }
 };
 
-// Manual Odoo sync
-export const syncToOdoo = async (req, res) => {
-  try {
-    const { leadId } = req.body;
+// =====================
+// USER MANAGEMENT
+// =====================
 
-    if (!process.env.ODOO_URL) {
-      return res.status(400).json({
-        success: false,
-        message: 'Odoo integration not configured',
-      });
-    }
-
-    if (leadId) {
-      // Sync single lead
-      const lead = await leadStorage.getLeadById(leadId);
-      if (!lead) {
-        return res.status(404).json({
-          success: false,
-          message: 'Lead not found',
-        });
-      }
-
-      const result = await odooService.syncLead(lead);
-      
-      logger.info(`✅ Lead synced to Odoo: ${leadId} by ${req.user.email}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Lead synced to Odoo successfully',
-        data: result,
-      });
-    } else {
-      // Sync all unsynced leads
-      const leads = await leadStorage.getAllLeads();
-      const unsyncedLeads = leads.filter(l => !l.odooLeadId);
-
-      const results = {
-        total: unsyncedLeads.length,
-        synced: 0,
-        failed: 0,
-        errors: [],
-      };
-
-      for (const lead of unsyncedLeads) {
-        try {
-          await odooService.syncLead(lead);
-          results.synced++;
-        } catch (error) {
-          results.failed++;
-          results.errors.push({
-            leadId: lead.id,
-            error: error.message,
-          });
-        }
-      }
-
-      logger.info(`✅ Bulk sync completed: ${results.synced}/${results.total} by ${req.user.email}`);
-
-      res.status(200).json({
-        success: true,
-        message: `Synced ${results.synced} of ${results.total} leads to Odoo`,
-        data: results,
-      });
-    }
-  } catch (error) {
-    logger.error('❌ Odoo sync error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to sync to Odoo',
-      error: error.message,
-    });
-  }
-};
-
-// User management (admin only)
 export const getAllUsers = async (req, res) => {
   try {
     const users = await userStorage.getAllUsers();
-
-    res.status(200).json({
-      success: true,
-      count: users.length,
-      data: users,
-    });
+    res.status(200).json({ success: true, data: users });
   } catch (error) {
     logger.error('❌ Get all users error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get users',
-    });
+    res.status(500).json({ success: false, message: 'Failed to get users' });
   }
 };
 
@@ -419,38 +355,14 @@ export const updateUser = async (req, res) => {
     if (name) updates.name = name;
     if (email) updates.email = email;
     if (role) updates.role = role;
-    if (isActive !== undefined) updates.isActive = isActive;
+    if (typeof isActive === 'boolean') updates.isActive = isActive;
 
     const user = await userStorage.updateUser(id, updates);
-
-    logger.info(`✅ User updated: ${id} by ${req.user.email}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'User updated successfully',
-      data: user,
-    });
+    logger.info(`✅ User updated: ${user.email}`);
+    res.status(200).json({ success: true, message: 'User updated successfully', data: user });
   } catch (error) {
     logger.error('❌ Update user error:', error);
-
-    if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    if (error.message === 'Email already in use') {
-      return res.status(409).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update user',
-    });
+    res.status(500).json({ success: false, message: error.message || 'Failed to update user' });
   }
 };
 
@@ -458,48 +370,44 @@ export const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (id === req.user.id) {
+      return res.status(400).json({ success: false, message: 'Cannot delete your own account' });
+    }
+
     await userStorage.deleteUser(id);
-
-    logger.info(`✅ User deleted: ${id} by ${req.user.email}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'User deleted successfully',
-    });
+    logger.info(`✅ User deleted: ${id}`);
+    res.status(200).json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
     logger.error('❌ Delete user error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to delete user' });
+  }
+};
 
-    if (error.message === 'User not found') {
-      return res.status(404).json({
-        success: false,
-        message: error.message,
-      });
-    }
+export const verifyUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await userStorage.manuallyVerifyUser(id);
+    logger.info(`✅ User manually verified by admin: ${user.email}`);
+    res.status(200).json({ success: true, message: `${user.name} has been verified successfully`, data: user });
+  } catch (error) {
+    logger.error('❌ Manual verify user error:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to verify user' });
+  }
+};
 
-    if (error.message === 'Cannot delete the last admin user') {
-      return res.status(400).json({
-        success: false,
-        message: error.message,
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete user',
-    });
+export const getUnverifiedUsers = async (req, res) => {
+  try {
+    const users = await userStorage.getUnverifiedUsers();
+    res.status(200).json({ success: true, data: users });
+  } catch (error) {
+    logger.error('❌ Get unverified users error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get unverified users' });
   }
 };
 
 export default {
-  getDashboardStats,
-  getAllLeads,
-  getLead,
-  updateLeadStatus,
-  assignLead,
-  deleteLead,
-  exportLeads,
-  syncToOdoo,
-  getAllUsers,
-  updateUser,
-  deleteUser,
+  getDashboardStats, getAllLeads, getLead, getLeadActivities,
+  updateLeadStatus, assignLead, addLeadNote, logLeadCall, logLeadEmail,
+  scheduleViewing, completeViewing, addPropertyInterest, deleteLead, exportLeads,
+  getAllUsers, updateUser, deleteUser, verifyUser, getUnverifiedUsers,
 };

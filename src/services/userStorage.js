@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { fileURLToPath } from 'url';
 import User from '../models/User.js';
 
@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const USERS_FILE = path.join(__dirname, '../../data/users.json');
+const SALT_ROUNDS = 12;
 
 class UserStorage {
   constructor() {
@@ -19,18 +20,15 @@ class UserStorage {
     if (this.initialized) return;
 
     try {
-      // Ensure data directory exists
       const dataDir = path.dirname(USERS_FILE);
       await fs.mkdir(dataDir, { recursive: true });
 
-      // Try to read existing users file
       try {
         const data = await fs.readFile(USERS_FILE, 'utf8');
         this.users = JSON.parse(data).map(u => new User(u));
         console.log(`✅ Loaded ${this.users.length} users from storage`);
       } catch (err) {
         if (err.code === 'ENOENT') {
-          // File doesn't exist, create it with default admin
           console.log('📝 Creating new users file with default admin');
           await this.createDefaultAdmin();
         } else {
@@ -46,12 +44,15 @@ class UserStorage {
   }
 
   async createDefaultAdmin() {
+    const hashedPassword = await this.hashPassword('Admin@123');
+    
     const defaultAdmin = new User({
       email: 'admin@kejamatch.com',
-      password: this.hashPassword('Admin@123'), // Default password
+      password: hashedPassword,
       name: 'Admin User',
       role: 'admin',
       isActive: true,
+      isVerified: true, // Admin is pre-verified
     });
 
     this.users = [defaultAdmin];
@@ -76,63 +77,66 @@ class UserStorage {
     }
   }
 
-  // Hash password using crypto
-  hashPassword(password) {
-    return crypto
-      .createHash('sha256')
-      .update(password + process.env.JWT_SECRET)
-      .digest('hex');
+  async hashPassword(password) {
+    return bcrypt.hash(password, SALT_ROUNDS);
   }
 
-  // Verify password
-  verifyPassword(password, hashedPassword) {
-    return this.hashPassword(password) === hashedPassword;
+  async verifyPassword(password, hashedPassword) {
+    try {
+      return await bcrypt.compare(password, hashedPassword);
+    } catch (error) {
+      console.error('Password verification error:', error);
+      return false;
+    }
   }
 
-  // Create new user
   async createUser(userData) {
     await this.initialize();
 
-    // Check if user already exists
-    const existingUser = this.users.find(u => u.email === userData.email);
+    const existingUser = this.users.find(u => u.email.toLowerCase() === userData.email.toLowerCase());
     if (existingUser) {
       throw new Error('User with this email already exists');
     }
 
-    // Hash password
-    const hashedPassword = this.hashPassword(userData.password);
+    const hashedPassword = await this.hashPassword(userData.password);
 
     const user = new User({
       ...userData,
+      email: userData.email.toLowerCase(),
       password: hashedPassword,
+      isVerified: false, // New users are not verified
     });
+
+    // Generate verification code
+    const verificationCode = user.generateVerificationCode();
 
     this.users.push(user);
     await this.save();
 
-    console.log(`✅ User created: ${user.email} (${user.role})`);
-    return user.toJSON();
+    console.log(`✅ User created: ${user.email} (${user.role}) - Pending verification`);
+    
+    // Return user with verification code (for sending email)
+    return {
+      ...user.toJSON(),
+      verificationCode,
+    };
   }
 
-  // Find user by email
   async findByEmail(email) {
     await this.initialize();
-    return this.users.find(u => u.email === email);
+    return this.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   }
 
-  // Find user by ID
   async findById(id) {
     await this.initialize();
     return this.users.find(u => u.id === id);
   }
 
-  // Get all users (admin only)
   async getAllUsers() {
     await this.initialize();
     return this.users.map(u => u.toJSON());
   }
 
-  // Update user
   async updateUser(id, updates) {
     await this.initialize();
 
@@ -141,20 +145,18 @@ class UserStorage {
       throw new Error('User not found');
     }
 
-    // Don't allow email changes if it's already taken
-    if (updates.email && updates.email !== this.users[userIndex].email) {
-      const existingUser = this.users.find(u => u.email === updates.email);
+    if (updates.email && updates.email.toLowerCase() !== this.users[userIndex].email.toLowerCase()) {
+      const existingUser = this.users.find(u => u.email.toLowerCase() === updates.email.toLowerCase());
       if (existingUser) {
         throw new Error('Email already in use');
       }
+      updates.email = updates.email.toLowerCase();
     }
 
-    // Hash password if being updated
     if (updates.password) {
-      updates.password = this.hashPassword(updates.password);
+      updates.password = await this.hashPassword(updates.password);
     }
 
-    // Update user
     this.users[userIndex] = new User({
       ...this.users[userIndex],
       ...updates,
@@ -164,7 +166,6 @@ class UserStorage {
     return this.users[userIndex].toJSON();
   }
 
-  // Update last login
   async updateLastLogin(id) {
     await this.initialize();
 
@@ -175,7 +176,6 @@ class UserStorage {
     }
   }
 
-  // Delete user
   async deleteUser(id) {
     await this.initialize();
 
@@ -184,7 +184,6 @@ class UserStorage {
       throw new Error('User not found');
     }
 
-    // Don't allow deleting the last admin
     const user = this.users[userIndex];
     if (user.role === 'admin') {
       const adminCount = this.users.filter(u => u.role === 'admin').length;
@@ -199,7 +198,6 @@ class UserStorage {
     return { success: true, message: 'User deleted successfully' };
   }
 
-  // Authenticate user
   async authenticate(email, password) {
     await this.initialize();
 
@@ -212,18 +210,86 @@ class UserStorage {
       throw new Error('User account is disabled');
     }
 
-    const isValidPassword = this.verifyPassword(password, user.password);
+    const isValidPassword = await this.verifyPassword(password, user.password);
     if (!isValidPassword) {
       return null;
     }
 
-    // Update last login
     await this.updateLastLogin(user.id);
 
     return user.toJSON();
   }
+
+  // =====================
+  // VERIFICATION METHODS
+  // =====================
+
+  async verifyUserEmail(email, code) {
+    await this.initialize();
+
+    const user = await this.findByEmail(email);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const result = user.verifyCode(code);
+    
+    if (result.valid) {
+      await this.save();
+      console.log(`✅ Email verified for user: ${user.email}`);
+    }
+
+    return result;
+  }
+
+  async resendVerificationCode(email) {
+    await this.initialize();
+
+    const user = await this.findByEmail(email);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (user.isVerified) {
+      throw new Error('User is already verified');
+    }
+
+    const newCode = user.generateVerificationCode();
+    await this.save();
+
+    console.log(`📧 New verification code generated for: ${user.email}`);
+    
+    return {
+      code: newCode,
+      user: user.toJSON(),
+    };
+  }
+
+  async manuallyVerifyUser(userId) {
+    await this.initialize();
+
+    const userIndex = this.users.findIndex(u => u.id === userId);
+    if (userIndex === -1) {
+      throw new Error('User not found');
+    }
+
+    this.users[userIndex].isVerified = true;
+    this.users[userIndex].verificationCode = null;
+    this.users[userIndex].verificationCodeExpiry = null;
+    this.users[userIndex].verificationAttempts = 0;
+
+    await this.save();
+    
+    console.log(`✅ User manually verified: ${this.users[userIndex].email}`);
+    
+    return this.users[userIndex].toJSON();
+  }
+
+  async getUnverifiedUsers() {
+    await this.initialize();
+    return this.users.filter(u => !u.isVerified).map(u => u.toJSON());
+  }
 }
 
-// Singleton instance
 export const userStorage = new UserStorage();
 export default userStorage;

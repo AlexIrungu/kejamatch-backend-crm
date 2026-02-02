@@ -1,13 +1,59 @@
 import { userStorage } from '../services/userStorage.js';
 import { generateToken } from '../middleware/auth.js';
+import { Resend } from 'resend';
+import { verificationCodeTemplate, welcomeEmailTemplate } from '../templates/emailTemplates.js';
 import logger from '../utils/logger.js';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@kejamatch.com';
+
+// Helper: Send verification email
+const sendVerificationEmail = async (user, code) => {
+  try {
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: user.email,
+      subject: '🔐 Verify Your Kejamatch Account',
+      html: verificationCodeTemplate({
+        name: user.name,
+        code: code,
+        role: user.role,
+      }),
+    });
+    logger.info(`📧 Verification email sent to: ${user.email}`);
+    return true;
+  } catch (error) {
+    logger.error(`❌ Failed to send verification email to ${user.email}:`, error);
+    return false;
+  }
+};
+
+// Helper: Send welcome email
+const sendWelcomeEmail = async (user) => {
+  try {
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: user.email,
+      subject: '🎉 Welcome to Kejamatch!',
+      html: welcomeEmailTemplate({
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      }),
+    });
+    logger.info(`📧 Welcome email sent to: ${user.email}`);
+    return true;
+  } catch (error) {
+    logger.error(`❌ Failed to send welcome email to ${user.email}:`, error);
+    return false;
+  }
+};
 
 // Register new user
 export const register = async (req, res) => {
   try {
     const { email, password, name, role } = req.body;
 
-    // Validate input
     if (!email || !password || !name) {
       return res.status(400).json({
         success: false,
@@ -15,7 +61,6 @@ export const register = async (req, res) => {
       });
     }
 
-    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({
@@ -24,7 +69,6 @@ export const register = async (req, res) => {
       });
     }
 
-    // Validate password strength (min 8 chars, 1 uppercase, 1 number)
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
@@ -40,13 +84,11 @@ export const register = async (req, res) => {
     }
 
     // Only admins can create admin accounts
-    let userRole = 'agent'; // Default role
+    let userRole = 'agent';
     if (role === 'admin') {
-      // Check if requester is admin (for subsequent admin creations)
       if (req.user && req.user.role === 'admin') {
         userRole = 'admin';
       } else {
-        // For first admin creation (no auth yet), allow it
         const users = await userStorage.getAllUsers();
         if (users.length === 0) {
           userRole = 'admin';
@@ -59,25 +101,35 @@ export const register = async (req, res) => {
       }
     }
 
-    // Create user
-    const user = await userStorage.createUser({
+    // Create user (returns user with verification code)
+    const userData = await userStorage.createUser({
       email,
       password,
       name,
       role: userRole,
     });
 
-    // Generate token
-    const token = generateToken(user);
+    // Send verification email
+    await sendVerificationEmail(userData, userData.verificationCode);
 
-    logger.info(`✅ User registered: ${email} (${userRole})`);
+    // Generate token (user can login but will be blocked from dashboard until verified)
+    const token = generateToken(userData);
+
+    logger.info(`✅ User registered: ${email} (${userRole}) - Verification pending`);
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'Registration successful! Please check your email for verification code.',
       data: {
-        user,
+        user: {
+          id: userData.id,
+          email: userData.email,
+          name: userData.name,
+          role: userData.role,
+          isVerified: userData.isVerified,
+        },
         token,
+        requiresVerification: true,
       },
     });
   } catch (error) {
@@ -97,12 +149,88 @@ export const register = async (req, res) => {
   }
 };
 
+// Verify email with code
+export const verifyEmail = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and verification code are required',
+      });
+    }
+
+    const result = await userStorage.verifyUserEmail(email, code);
+
+    if (!result.valid) {
+      return res.status(400).json({
+        success: false,
+        message: result.error,
+      });
+    }
+
+    // Get updated user data
+    const user = await userStorage.findByEmail(email);
+    
+    // Send welcome email
+    await sendWelcomeEmail(user.toJSON());
+
+    logger.info(`✅ Email verified for: ${email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Email verified successfully! Welcome to Kejamatch.',
+      data: {
+        user: user.toJSON(),
+      },
+    });
+  } catch (error) {
+    logger.error('❌ Verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to verify email',
+    });
+  }
+};
+
+// Resend verification code
+export const resendVerificationCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+    }
+
+    const result = await userStorage.resendVerificationCode(email);
+
+    // Send new verification email
+    await sendVerificationEmail(result.user, result.code);
+
+    logger.info(`📧 Verification code resent to: ${email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'New verification code sent to your email.',
+    });
+  } catch (error) {
+    logger.error('❌ Resend verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to resend verification code',
+    });
+  }
+};
+
 // Login user
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate input
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -110,7 +238,6 @@ export const login = async (req, res) => {
       });
     }
 
-    // Authenticate user
     const user = await userStorage.authenticate(email, password);
 
     if (!user) {
@@ -120,17 +247,17 @@ export const login = async (req, res) => {
       });
     }
 
-    // Generate token
     const token = generateToken(user);
 
-    logger.info(`✅ User logged in: ${email}`);
+    logger.info(`✅ User logged in: ${email} (Verified: ${user.isVerified})`);
 
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: user.isVerified ? 'Login successful' : 'Login successful - Please verify your email',
       data: {
         user,
         token,
+        requiresVerification: !user.isVerified,
       },
     });
   } catch (error) {
@@ -150,7 +277,7 @@ export const login = async (req, res) => {
   }
 };
 
-// Get current user (from token)
+// Get current user
 export const getCurrentUser = async (req, res) => {
   try {
     const user = await userStorage.findById(req.user.id);
@@ -183,12 +310,10 @@ export const updateProfile = async (req, res) => {
 
     const updates = {};
 
-    // Update name
     if (name) {
       updates.name = name;
     }
 
-    // Update email
     if (email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
@@ -200,7 +325,6 @@ export const updateProfile = async (req, res) => {
       updates.email = email;
     }
 
-    // Update password (requires current password)
     if (newPassword) {
       if (!currentPassword) {
         return res.status(400).json({
@@ -209,9 +333,8 @@ export const updateProfile = async (req, res) => {
         });
       }
 
-      // Verify current password
       const user = await userStorage.findById(userId);
-      const isValidPassword = userStorage.verifyPassword(currentPassword, user.password);
+      const isValidPassword = await userStorage.verifyPassword(currentPassword, user.password);
       
       if (!isValidPassword) {
         return res.status(401).json({
@@ -220,7 +343,6 @@ export const updateProfile = async (req, res) => {
         });
       }
 
-      // Validate new password
       if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
         return res.status(400).json({
           success: false,
@@ -231,7 +353,6 @@ export const updateProfile = async (req, res) => {
       updates.password = newPassword;
     }
 
-    // Update user
     const updatedUser = await userStorage.updateUser(userId, updates);
 
     logger.info(`✅ Profile updated for user: ${updatedUser.email}`);
@@ -271,9 +392,8 @@ export const changePassword = async (req, res) => {
       });
     }
 
-    // Verify current password
     const user = await userStorage.findById(userId);
-    const isValidPassword = userStorage.verifyPassword(currentPassword, user.password);
+    const isValidPassword = await userStorage.verifyPassword(currentPassword, user.password);
 
     if (!isValidPassword) {
       return res.status(401).json({
@@ -282,7 +402,6 @@ export const changePassword = async (req, res) => {
       });
     }
 
-    // Validate new password
     if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
       return res.status(400).json({
         success: false,
@@ -290,7 +409,6 @@ export const changePassword = async (req, res) => {
       });
     }
 
-    // Update password
     await userStorage.updateUser(userId, { password: newPassword });
 
     logger.info(`✅ Password changed for user: ${user.email}`);
@@ -311,6 +429,8 @@ export const changePassword = async (req, res) => {
 export default {
   register,
   login,
+  verifyEmail,
+  resendVerificationCode,
   getCurrentUser,
   updateProfile,
   changePassword,
