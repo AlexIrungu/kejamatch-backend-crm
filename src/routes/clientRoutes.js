@@ -15,9 +15,20 @@ import {
   enable2FA,
   getMyInquiry,
   requestDataExport,
-  requestAccountDeletion
+  requestAccountDeletion,
+  saveProperty,
+  unsaveProperty,
+  getSavedProperties,
+  getMyViewings
 } from '../controllers/clientController.js';
 import { verifyToken } from '../middleware/auth.js';
+import {
+  sendMessage,
+  getConversation,
+  getConversations,
+  markAsRead,
+  getUnreadCount
+} from '../controllers/messageController.js';
 import { uploadMiddleware } from '../middleware/upload.js';
 import { require2FA } from '../middleware/documentAuth.js';
 
@@ -132,6 +143,30 @@ router.post('/2fa/verify', verify2FACode);
  * @access  Private (Client)
  */
 router.post('/2fa/enable', enable2FA);
+
+// =====================
+// SAVED PROPERTIES
+// =====================
+
+router.get('/properties/saved', getSavedProperties);
+router.post('/properties/:id/save', saveProperty);
+router.delete('/properties/:id/save', unsaveProperty);
+
+// =====================
+// VIEWINGS
+// =====================
+
+router.get('/viewings', getMyViewings);
+
+// =====================
+// MESSAGING
+// =====================
+
+router.get('/messages', getConversations);
+router.get('/messages/unread-count', getUnreadCount);
+router.get('/messages/:partnerId', getConversation);
+router.post('/messages', sendMessage);
+router.put('/messages/:partnerId/read', markAsRead);
 
 // =====================
 // INQUIRIES & LEADS

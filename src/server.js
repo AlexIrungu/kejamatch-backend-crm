@@ -1,8 +1,10 @@
 import express from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
+import socketService from './services/socketService.js';
 import bookingRoutes from './routes/bookingRoutes.js';
 import contactRoutes from './routes/contactRoutes.js';
 import authRoutes from './routes/authRoutes.js';
@@ -20,6 +22,7 @@ import clientRoutes from './routes/clientRoutes.js';
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // Security middleware
@@ -114,14 +117,22 @@ const startServer = async () => {
   try {
     // Connect to MongoDB first
     await database.connect();
-    
-    // Then start the Express server
-    app.listen(PORT, () => {
+
+    // Initialize Socket.IO (optional - only if socket.io is installed)
+    try {
+      socketService.initializeSocket(httpServer, corsOptions);
+      logger.info('🔌 WebSocket server initialized');
+    } catch (socketError) {
+      logger.warn('⚠️  WebSocket not initialized (socket.io may not be installed)');
+    }
+
+    // Start the HTTP server (supports both Express and Socket.IO)
+    httpServer.listen(PORT, () => {
       logger.info(`🚀 Kejamatch Backend Server running on port ${PORT}`);
       logger.info(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info(`🌐 CORS enabled for: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
       logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL}`);
-      
+
       // Check Odoo configuration
       if (process.env.ODOO_URL) {
         logger.info(`✅ Odoo CRM integration enabled: ${process.env.ODOO_URL}`);

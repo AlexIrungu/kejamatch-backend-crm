@@ -7,6 +7,13 @@ import express from 'express';
 import LeadStorage from '../services/leadStorageMongo.js';
 import { verifyToken } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import {
+  sendMessage,
+  getConversation,
+  getConversations,
+  markAsRead,
+  getUnreadCount
+} from '../controllers/messageController.js';
 
 const router = express.Router();
 
@@ -398,5 +405,126 @@ router.post('/leads/:id/property-interest', async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to add property interest' });
   }
 });
+
+// =====================
+// FOLLOW-UPS & ACTIVITY
+// =====================
+
+// Get leads needing follow-up (not contacted in 3+ days)
+router.get('/follow-ups', async (req, res) => {
+  try {
+    const leadsResponse = await LeadStorage.getAllLeads();
+    const leads = leadsResponse?.leads || [];
+
+    const agentLeads = leads.filter(l =>
+      getAssignedToId(l.assignedTo) === req.user.id.toString()
+    );
+
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+
+    const needsFollowUp = agentLeads.filter(lead => {
+      if (['won', 'lost'].includes(lead.status)) return false;
+
+      const lastActivity = lead.activities?.length > 0
+        ? new Date(lead.activities[lead.activities.length - 1].timestamp)
+        : new Date(lead.createdAt);
+
+      return lastActivity < threeDaysAgo;
+    }).map(lead => {
+      const lastActivity = lead.activities?.length > 0
+        ? new Date(lead.activities[lead.activities.length - 1].timestamp)
+        : new Date(lead.createdAt);
+      const daysSince = Math.floor((Date.now() - lastActivity) / (24 * 60 * 60 * 1000));
+
+      return {
+        ...lead.toObject ? lead.toObject() : lead,
+        id: lead._id.toString(),
+        daysSinceContact: daysSince
+      };
+    });
+
+    res.status(200).json({ success: true, data: needsFollowUp });
+  } catch (error) {
+    logger.error('Get follow-ups error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get follow-ups' });
+  }
+});
+
+// Get activity timeline (recent activities across all leads)
+router.get('/activity-timeline', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const leadsResponse = await LeadStorage.getAllLeads();
+    const leads = leadsResponse?.leads || [];
+
+    const agentLeads = leads.filter(l =>
+      getAssignedToId(l.assignedTo) === req.user.id.toString()
+    );
+
+    const allActivities = [];
+    agentLeads.forEach(lead => {
+      (lead.activities || []).forEach(activity => {
+        allActivities.push({
+          ...activity.toObject ? activity.toObject() : activity,
+          leadId: lead._id.toString(),
+          leadName: lead.name,
+          leadEmail: lead.email
+        });
+      });
+    });
+
+    allActivities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    res.status(200).json({ success: true, data: allActivities.slice(0, limit) });
+  } catch (error) {
+    logger.error('Get activity timeline error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get activity timeline' });
+  }
+});
+
+// Get upcoming viewings
+router.get('/viewings/upcoming', async (req, res) => {
+  try {
+    const leadsResponse = await LeadStorage.getAllLeads();
+    const leads = leadsResponse?.leads || [];
+
+    const agentLeads = leads.filter(l =>
+      getAssignedToId(l.assignedTo) === req.user.id.toString()
+    );
+
+    const now = new Date();
+    const upcomingViewings = [];
+
+    agentLeads.forEach(lead => {
+      (lead.viewings || []).forEach(viewing => {
+        if (viewing.status === 'scheduled' && new Date(viewing.scheduledDate) >= now) {
+          upcomingViewings.push({
+            ...viewing.toObject ? viewing.toObject() : viewing,
+            leadId: lead._id.toString(),
+            leadName: lead.name,
+            leadPhone: lead.phone
+          });
+        }
+      });
+    });
+
+    upcomingViewings.sort((a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate));
+
+    res.status(200).json({ success: true, data: upcomingViewings });
+  } catch (error) {
+    logger.error('Get upcoming viewings error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get upcoming viewings' });
+  }
+});
+
+// =====================
+// MESSAGING
+// =====================
+
+router.get('/messages', getConversations);
+router.get('/messages/unread-count', getUnreadCount);
+router.get('/messages/:partnerId', getConversation);
+router.post('/messages', sendMessage);
+router.put('/messages/:partnerId/read', markAsRead);
 
 export default router;

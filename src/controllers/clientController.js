@@ -1,8 +1,15 @@
 import { clientStorage } from '../services/clientStorageMongo.js';
 import { documentStorage } from '../services/documentStorage.js';
 import { generateToken } from '../middleware/auth.js';
+import { Resend } from 'resend';
+import { clientRegistrationTemplate, twoFactorCodeTemplate } from '../templates/clientEmailTemplates.js';
 import logger from '../utils/logger.js';
 import LeadStorage from '../services/leadStorageMongo.js';
+import Property from '../models/PropertyModel.js';
+import Client from '../models/ClientModel.js';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@kejamatch.com';
 
 // =====================
 // CLIENT REGISTRATION & AUTH
@@ -63,6 +70,22 @@ export const registerClient = async (req, res) => {
       email: clientData.email,
       role: 'client'
     });
+
+    // Send verification email
+    try {
+      await resend.emails.send({
+        from: FROM_EMAIL,
+        to: email,
+        subject: '🔐 Verify Your Kejamatch Client Account',
+        html: clientRegistrationTemplate({
+          name,
+          code: clientData.verificationCode,
+        }),
+      });
+      logger.info(`📧 Verification email sent to: ${email}`);
+    } catch (emailError) {
+      logger.error(`❌ Failed to send verification email to ${email}:`, emailError);
+    }
 
     logger.info(`✅ Client registered: ${email} - Pending approval`);
 
@@ -208,6 +231,22 @@ export const resendClientVerificationCode = async (req, res) => {
     }
 
     const result = await clientStorage.resendVerificationCode(email);
+
+    // Send verification email
+    try {
+      await resend.emails.send({
+        from: FROM_EMAIL,
+        to: email,
+        subject: '🔐 Verify Your Kejamatch Client Account',
+        html: clientRegistrationTemplate({
+          name: result.client.name,
+          code: result.code,
+        }),
+      });
+      logger.info(`📧 Verification email sent to: ${email}`);
+    } catch (emailError) {
+      logger.error(`❌ Failed to send verification email to ${email}:`, emailError);
+    }
 
     logger.info(`📧 Verification code resent to: ${email}`);
 
@@ -466,7 +505,18 @@ export const request2FACode = async (req, res) => {
   try {
     const code = await clientStorage.generate2FACode(req.user.id);
 
-    // TODO: Send code via email/SMS
+    // Send 2FA code via email
+    try {
+      await resend.emails.send({
+        from: FROM_EMAIL,
+        to: req.user.email,
+        subject: '🔐 Kejamatch Security Verification Code',
+        html: twoFactorCodeTemplate({ clientName: req.user.name, code }),
+      });
+      logger.info(`📧 2FA code sent to: ${req.user.email}`);
+    } catch (emailError) {
+      logger.error(`❌ Failed to send 2FA code to ${req.user.email}:`, emailError);
+    }
 
     logger.info(`🔐 2FA code requested by client: ${req.user.id}`);
 
@@ -633,6 +683,92 @@ export const requestAccountDeletion = async (req, res) => {
   }
 };
 
+// =====================
+// SAVED PROPERTIES
+// =====================
+
+export const saveProperty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = await Client.findById(req.user.id);
+
+    if (!client) {
+      return res.status(404).json({ success: false, message: 'Client not found' });
+    }
+
+    if (client.savedProperties.includes(id)) {
+      return res.status(200).json({ success: true, message: 'Property already saved' });
+    }
+
+    client.savedProperties.push(id);
+    await client.save();
+
+    res.status(200).json({ success: true, message: 'Property saved' });
+  } catch (error) {
+    logger.error('❌ Save property error:', error);
+    res.status(500).json({ success: false, message: 'Failed to save property' });
+  }
+};
+
+export const unsaveProperty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await Client.findByIdAndUpdate(req.user.id, {
+      $pull: { savedProperties: id }
+    });
+
+    res.status(200).json({ success: true, message: 'Property removed from saved' });
+  } catch (error) {
+    logger.error('❌ Unsave property error:', error);
+    res.status(500).json({ success: false, message: 'Failed to remove property' });
+  }
+};
+
+export const getSavedProperties = async (req, res) => {
+  try {
+    const client = await Client.findById(req.user.id);
+
+    if (!client || !client.savedProperties.length) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const properties = await Property.find({
+      _id: { $in: client.savedProperties }
+    });
+
+    res.status(200).json({ success: true, data: properties });
+  } catch (error) {
+    logger.error('❌ Get saved properties error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get saved properties' });
+  }
+};
+
+// =====================
+// CLIENT VIEWINGS
+// =====================
+
+export const getMyViewings = async (req, res) => {
+  try {
+    const client = await Client.findById(req.user.id);
+
+    if (!client || !client.linkedLeadId) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const leadStorage = new LeadStorage();
+    const lead = await leadStorage.findById(client.linkedLeadId);
+
+    if (!lead || !lead.viewings) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    res.status(200).json({ success: true, data: lead.viewings });
+  } catch (error) {
+    logger.error('❌ Get my viewings error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get viewings' });
+  }
+};
+
 export default {
   registerClient,
   loginClient,
@@ -649,5 +785,9 @@ export default {
   enable2FA,
   getMyInquiry,
   requestDataExport,
-  requestAccountDeletion
+  requestAccountDeletion,
+  saveProperty,
+  unsaveProperty,
+  getSavedProperties,
+  getMyViewings,
 };

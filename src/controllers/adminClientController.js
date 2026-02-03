@@ -2,7 +2,12 @@
 
 import { clientStorage } from '../services/clientStorageMongo.js';
 import { documentStorage } from '../services/documentStorage.js';
+import { Resend } from 'resend';
+import { clientApprovedTemplate, clientRejectedTemplate } from '../templates/clientEmailTemplates.js';
 import logger from '../utils/logger.js';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@kejamatch.com';
 
 // =====================
 // CLIENT APPROVAL WORKFLOW
@@ -37,7 +42,18 @@ export const approveClient = async (req, res) => {
 
     const client = await clientStorage.approveClient(id, req.user.id);
 
-    // TODO: Send approval email to client
+    // Send approval email
+    try {
+      await resend.emails.send({
+        from: FROM_EMAIL,
+        to: client.email,
+        subject: '🎉 Your Kejamatch Account Has Been Approved!',
+        html: clientApprovedTemplate({ name: client.name }),
+      });
+      logger.info(`📧 Approval email sent to: ${client.email}`);
+    } catch (emailError) {
+      logger.error(`❌ Failed to send approval email to ${client.email}:`, emailError);
+    }
 
     logger.info(`✅ Client approved: ${id} by ${req.user.email}`);
 
@@ -72,7 +88,18 @@ export const rejectClient = async (req, res) => {
 
     const client = await clientStorage.rejectClient(id, req.user.id, reason);
 
-    // TODO: Send rejection email to client
+    // Send rejection email
+    try {
+      await resend.emails.send({
+        from: FROM_EMAIL,
+        to: client.email,
+        subject: 'Kejamatch Account Update',
+        html: clientRejectedTemplate({ name: client.name, reason }),
+      });
+      logger.info(`📧 Rejection email sent to: ${client.email}`);
+    } catch (emailError) {
+      logger.error(`❌ Failed to send rejection email to ${client.email}:`, emailError);
+    }
 
     logger.info(`❌ Client rejected: ${id} by ${req.user.email}`);
 

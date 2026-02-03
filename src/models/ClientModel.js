@@ -181,6 +181,11 @@ const clientSchema = new mongoose.Schema({
     index: true
   },
 
+  // Saved/Favorite Properties
+  savedProperties: [{
+    type: String
+  }],
+
   // Activity Tracking
   lastLogin: {
     type: Date,
@@ -266,14 +271,13 @@ clientSchema.virtual('statusBadge').get(function() {
 });
 
 // Pre-save hook: Hash password
-clientSchema.pre('save', async function(next) {
+clientSchema.pre('save', async function() {
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
 
   this.password = await bcrypt.hash(this.password, SALT_ROUNDS);
   this.lastPasswordChange = new Date();
-  next();
 });
 
 // Method: Compare passwords

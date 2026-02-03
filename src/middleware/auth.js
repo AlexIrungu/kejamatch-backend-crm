@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
-import { userStorage } from '../services/userStorageMongo.js'; // Use MongoDB version
+import { userStorage } from '../services/userStorageMongo.js';
+import { clientStorage } from '../services/clientStorageMongo.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -38,8 +39,14 @@ export const verifyToken = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
 
     // Check if user still exists and is active
-    const user = await userStorage.findById(decoded.id);
-    
+    let user;
+
+    if (decoded.role === 'client') {
+      user = await clientStorage.findById(decoded.id);
+    } else {
+      user = await userStorage.findById(decoded.id);
+    }
+
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -56,11 +63,11 @@ export const verifyToken = async (req, res, next) => {
 
     // Attach user to request - use virtual id or _id
     const userId = user.id || user._id?.toString();
-    
+
     req.user = {
       id: userId,
       email: user.email,
-      role: user.role,
+      role: decoded.role,
       name: user.name,
     };
 

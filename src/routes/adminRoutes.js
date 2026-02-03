@@ -36,6 +36,8 @@ import {
   downloadClientDocument,
   getClientStats
 } from '../controllers/adminClientController.js';
+import odooSyncService from '../services/odooSyncService.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -88,5 +90,47 @@ router.get('/documents/pending', verifyToken, requireAdmin, getPendingDocuments)
 router.post('/documents/:id/verify', verifyToken, requireAdmin, verifyDocument);
 router.post('/documents/:id/reject', verifyToken, requireAdmin, rejectDocument);
 router.get('/documents/:id/download', verifyToken, requireAdmin, downloadClientDocument);
+
+// =====================
+// ODOO SYNC
+// =====================
+
+// Trigger pull from Odoo
+router.post('/sync/odoo-pull', async (req, res) => {
+  try {
+    logger.info(`Odoo pull sync triggered by user ${req.user.id}`);
+    const result = await odooSyncService.syncFromOdoo(req.user.id);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Odoo pull sync failed:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Get sync logs
+router.get('/sync/logs', async (req, res) => {
+  try {
+    const logs = await odooSyncService.getSyncLogs({
+      type: req.query.type,
+      status: req.query.status,
+      limit: parseInt(req.query.limit) || 20
+    });
+    res.status(200).json({ success: true, data: logs });
+  } catch (error) {
+    logger.error('Failed to get sync logs:', error);
+    res.status(500).json({ success: false, message: 'Failed to get sync logs' });
+  }
+});
+
+// Get last sync info
+router.get('/sync/last', async (req, res) => {
+  try {
+    const info = await odooSyncService.getLastSyncInfo();
+    res.status(200).json({ success: true, data: info });
+  } catch (error) {
+    logger.error('Failed to get last sync info:', error);
+    res.status(500).json({ success: false, message: 'Failed to get sync info' });
+  }
+});
 
 export default router;
