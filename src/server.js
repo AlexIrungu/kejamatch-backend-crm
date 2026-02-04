@@ -4,7 +4,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
-import socketService from './services/socketService.js';
+import pusherService from './services/pusherService.js';
 import bookingRoutes from './routes/bookingRoutes.js';
 import contactRoutes from './routes/contactRoutes.js';
 import authRoutes from './routes/authRoutes.js';
@@ -17,6 +17,7 @@ import propertyRoutes from './routes/propertyRoutes.js';
 import viewingRoutes from './routes/viewingRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import clientRoutes from './routes/clientRoutes.js';
+import pusherRoutes from './routes/pusherRoutes.js';
 
 // Load environment variables
 dotenv.config();
@@ -99,6 +100,7 @@ app.use('/api/properties', propertyRoutes);
 app.use('/api/viewings', viewingRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/client', clientRoutes);
+app.use('/api/pusher', pusherRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -118,12 +120,12 @@ const startServer = async () => {
     // Connect to MongoDB first
     await database.connect();
 
-    // Initialize Socket.IO (optional - only if socket.io is installed)
+    // Initialize Pusher service
     try {
-      socketService.initializeSocket(httpServer, corsOptions);
-      logger.info('🔌 WebSocket server initialized');
-    } catch (socketError) {
-      logger.warn('⚠️  WebSocket not initialized (socket.io may not be installed)');
+      pusherService.initialize();
+      logger.info('🔌 Pusher real-time service initialized');
+    } catch (pusherError) {
+      logger.warn('⚠️  Pusher not initialized:', pusherError.message);
     }
 
     // Start the HTTP server (supports both Express and Socket.IO)

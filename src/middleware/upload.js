@@ -1,6 +1,15 @@
 import multer from 'multer';
 import path from 'path';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import logger from '../utils/logger.js';
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 // Allowed file types
 const ALLOWED_MIME_TYPES = [
@@ -14,8 +23,26 @@ const ALLOWED_MIME_TYPES = [
 // Max file size: 10MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-// Configure multer storage (memory storage for processing before saving)
-const storage = multer.memoryStorage();
+// Configure Cloudinary storage
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: async (req, file) => {
+    const category = req.body.category || 'uncategorized';
+    const isPdf = file.mimetype === 'application/pdf';
+
+    // Generate unique filename: timestamp-originalname (without extension)
+    const originalNameWithoutExt = path.parse(file.originalname).name;
+    const timestamp = Date.now();
+    const publicId = `${timestamp}-${originalNameWithoutExt}`;
+
+    return {
+      folder: `kejamatch/${category}`,
+      resource_type: isPdf ? 'raw' : 'image',
+      public_id: publicId,
+      allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'pdf']
+    };
+  }
+});
 
 // File filter function
 const fileFilter = (req, file, cb) => {
@@ -31,7 +58,7 @@ const fileFilter = (req, file, cb) => {
   // Check file extension
   const ext = path.extname(file.originalname).toLowerCase();
   const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
-  
+
   if (!allowedExtensions.includes(ext)) {
     const error = new Error(
       `Invalid file extension. Allowed extensions: ${allowedExtensions.join(', ')}`
@@ -139,10 +166,14 @@ export const requireFile = (req, res, next) => {
   next();
 };
 
+// Export cloudinary instance for use in other modules
+export { cloudinary };
+
 // Export all middleware
 export default {
   uploadMiddleware,
   handleUploadError,
   validateDocumentCategory,
-  requireFile
+  requireFile,
+  cloudinary
 };

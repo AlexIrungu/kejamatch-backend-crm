@@ -36,6 +36,16 @@ const documentSchema = new mongoose.Schema({
     required: true
   },
 
+  // Cloudinary fields
+  cloudinaryPublicId: {
+    type: String,
+    default: null
+  },
+  cloudinaryUrl: {
+    type: String,
+    default: null
+  },
+
   // Document Category
   category: {
     type: String,

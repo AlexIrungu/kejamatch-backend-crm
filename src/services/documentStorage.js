@@ -1,27 +1,27 @@
 /**
  * Document Storage Service
- * Handles file uploads, encryption, and document management
+ * Handles file uploads via Cloudinary and document management
  */
 
 import Document from '../models/DocumentModel.js';
 import logger from '../utils/logger.js';
-import fs from 'fs/promises';
-import path from 'path';
-import crypto from 'crypto';
+import { cloudinary } from '../middleware/upload.js';
 
 class DocumentStorage {
   constructor() {
     this.initialized = false;
-    this.uploadDir = path.join(process.cwd(), 'uploads', 'client-documents');
   }
 
   async initialize() {
     if (this.initialized) return;
 
     try {
-      // Ensure upload directory exists
-      await fs.mkdir(this.uploadDir, { recursive: true });
-      logger.info(`✅ Document upload directory ready: ${this.uploadDir}`);
+      // Verify Cloudinary configuration
+      if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+        throw new Error('Cloudinary configuration missing. Check CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET environment variables.');
+      }
+
+      logger.info('✅ Document storage initialized with Cloudinary');
       this.initialized = true;
     } catch (error) {
       logger.error('❌ Failed to initialize document storage:', error);
@@ -34,34 +34,36 @@ class DocumentStorage {
   // =====================
 
   /**
-   * Save uploaded file
+   * Save uploaded file (file already uploaded to Cloudinary by multer)
+   * @param {Object} file - Multer file object with Cloudinary data
+   * @param {String} clientId - Client's MongoDB ID
+   * @param {String} category - Document category
+   * @param {String} description - Optional description
    */
   async saveFile(file, clientId, category, description = null) {
     try {
       await this.initialize();
 
-      // Generate unique filename
-      const timestamp = Date.now();
-      const randomString = crypto.randomBytes(8).toString('hex');
-      const ext = path.extname(file.originalname);
-      const fileName = `${clientId}_${category}_${timestamp}_${randomString}${ext}`;
-      const filePath = path.join(this.uploadDir, fileName);
-
-      // Move file to upload directory
-      await fs.writeFile(filePath, file.buffer);
+      // Extract Cloudinary data from multer-storage-cloudinary
+      // file.path = Cloudinary URL
+      // file.filename = public_id (with folder)
+      const cloudinaryUrl = file.path;
+      const cloudinaryPublicId = file.filename;
 
       // Create document record
       const document = new Document({
         clientId,
-        fileName,
+        fileName: file.originalname,
         originalName: file.originalname,
         fileType: file.mimetype,
         fileSize: file.size,
-        filePath,
+        filePath: cloudinaryUrl, // Store Cloudinary URL as filePath for compatibility
+        cloudinaryUrl: cloudinaryUrl,
+        cloudinaryPublicId: cloudinaryPublicId,
         category,
         description,
         status: 'pending',
-        isEncrypted: false, // We'll add encryption in next phase if needed
+        isEncrypted: false,
         uploadedFrom: 'web'
       });
 
@@ -72,7 +74,7 @@ class DocumentStorage {
 
       await document.save();
 
-      logger.info(`✅ Document uploaded: ${fileName} by client ${clientId}`);
+      logger.info(`✅ Document uploaded to Cloudinary: ${cloudinaryPublicId} by client ${clientId}`);
 
       return document;
     } catch (error) {
@@ -82,14 +84,14 @@ class DocumentStorage {
   }
 
   /**
-   * Get file buffer for download
+   * Get file for download (proxy from Cloudinary)
    */
   async getFile(documentId, userId = null, ipAddress = null) {
     try {
       await this.initialize();
 
       const document = await Document.findById(documentId);
-      
+
       if (!document) {
         throw new Error('Document not found');
       }
@@ -104,8 +106,15 @@ class DocumentStorage {
         throw new Error('Document has expired');
       }
 
-      // Read file
-      const fileBuffer = await fs.readFile(document.filePath);
+      // Fetch file from Cloudinary URL
+      const response = await fetch(document.cloudinaryUrl || document.filePath);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch file from storage');
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const fileBuffer = Buffer.from(arrayBuffer);
 
       // Log access if userId provided
       if (userId) {
@@ -131,7 +140,7 @@ class DocumentStorage {
       await this.initialize();
 
       const document = await Document.findById(documentId);
-      
+
       if (!document) {
         throw new Error('Document not found');
       }
@@ -148,23 +157,30 @@ class DocumentStorage {
   }
 
   /**
-   * Permanently delete file (GDPR)
+   * Permanently delete file (GDPR) - removes from Cloudinary
    */
   async permanentlyDeleteFile(documentId) {
     try {
       await this.initialize();
 
       const document = await Document.findById(documentId);
-      
+
       if (!document) {
         throw new Error('Document not found');
       }
 
-      // Delete physical file
-      try {
-        await fs.unlink(document.filePath);
-      } catch (err) {
-        logger.warn(`⚠️  Could not delete physical file: ${document.filePath}`);
+      // Delete from Cloudinary
+      if (document.cloudinaryPublicId) {
+        try {
+          // Determine resource type based on file type
+          const resourceType = document.fileType === 'application/pdf' ? 'raw' : 'image';
+          await cloudinary.uploader.destroy(document.cloudinaryPublicId, {
+            resource_type: resourceType
+          });
+          logger.info(`✅ Deleted from Cloudinary: ${document.cloudinaryPublicId}`);
+        } catch (cloudinaryError) {
+          logger.warn(`⚠️  Could not delete from Cloudinary: ${document.cloudinaryPublicId}`, cloudinaryError);
+        }
       }
 
       // Delete database record
@@ -233,7 +249,7 @@ class DocumentStorage {
       await this.initialize();
 
       const document = await Document.findById(documentId);
-      
+
       if (!document) {
         throw new Error('Document not found');
       }
@@ -254,7 +270,7 @@ class DocumentStorage {
       await this.initialize();
 
       const document = await Document.findById(documentId);
-      
+
       if (!document) {
         throw new Error('Document not found');
       }
@@ -320,7 +336,7 @@ class DocumentStorage {
       await this.initialize();
 
       const expiredDocs = await Document.findExpired();
-      
+
       let count = 0;
       for (const doc of expiredDocs) {
         await doc.checkExpiry();
@@ -359,7 +375,7 @@ class DocumentStorage {
       }
 
       if (count > 0) {
-        logger.info(`✅ Permanently deleted ${count} old documents`);
+        logger.info(`✅ Permanently deleted ${count} old documents from Cloudinary`);
       }
 
       return count;
@@ -417,7 +433,8 @@ class DocumentStorage {
         verified: doc.status === 'verified',
         verifiedAt: doc.verifiedAt,
         expired: doc.isExpired,
-        deleted: doc.isDeleted
+        deleted: doc.isDeleted,
+        cloudinaryUrl: doc.cloudinaryUrl
       }));
 
       return exportData;

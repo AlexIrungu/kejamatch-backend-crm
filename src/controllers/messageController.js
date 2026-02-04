@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import Message from '../models/MessageModel.js';
 import Client from '../models/ClientModel.js';
 import User from '../models/User.js';
-import socketService from '../services/socketService.js';
+import pusherService from '../services/pusherService.js';
 
 // Send a message
 export const sendMessage = async (req, res) => {
@@ -42,8 +42,8 @@ export const sendMessage = async (req, res) => {
       content
     });
 
-    // Emit real-time notification to receiver
-    socketService.emitToUser(receiverId, 'new_message', {
+    // Emit real-time notification to receiver via Pusher
+    pusherService.triggerToUser(receiverId, 'new_message', {
       message,
       senderName,
       senderType
