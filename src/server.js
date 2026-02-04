@@ -34,7 +34,7 @@ const corsOptions = {
   origin: [
     process.env.FRONTEND_URL,
     'http://localhost:5173', // For local development
-    'https://kejamatch.com/'
+    'https://kejamatch.com'
   ],
   credentials: true,
   optionsSuccessStatus: 200
