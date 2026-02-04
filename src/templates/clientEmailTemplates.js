@@ -8,7 +8,7 @@ const colors = {
 
 // Base email styles
 const baseStyles = `
-  body { 
+  body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     line-height: 1.6;
     color: #333;
@@ -22,9 +22,10 @@ const baseStyles = `
     background-color: #ffffff;
   }
   .header {
-    background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.dark} 100%);
+    background-color: ${colors.primary};
     padding: 40px 20px;
     text-align: center;
+    border-bottom: 4px solid ${colors.secondary};
   }
   .header h1 {
     color: #ffffff;
@@ -50,13 +51,11 @@ const baseStyles = `
     border-left: 4px solid ${colors.secondary};
     padding: 20px;
     margin: 20px 0;
-    border-radius: 4px;
   }
   .code-box {
-    background: linear-gradient(135deg, ${colors.primary} 0%, ${colors.dark} 100%);
+    background-color: ${colors.primary};
     color: white;
     padding: 30px;
-    border-radius: 12px;
     margin: 30px 0;
     text-align: center;
   }
@@ -73,7 +72,6 @@ const baseStyles = `
     color: white;
     padding: 14px 30px;
     text-decoration: none;
-    border-radius: 8px;
     font-weight: 600;
     margin: 20px 0;
   }
@@ -91,7 +89,6 @@ const baseStyles = `
   .status-badge {
     display: inline-block;
     padding: 6px 12px;
-    border-radius: 20px;
     font-size: 12px;
     font-weight: 600;
     margin: 10px 0;
